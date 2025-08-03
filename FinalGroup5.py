@@ -329,6 +329,7 @@ def Data_Import_and_Overview_page():
 
 
 def create_preprocessor(df):
+    """Creates a preprocessing pipeline for numerical and categorical features"""
     X = df.drop('Status', axis=1)
 
     numerical_cols = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
@@ -783,4 +784,5 @@ pages = {
 selection = st.sidebar.selectbox("Select Page", list(pages.keys()))
 
 pages[selection]()
+
 
