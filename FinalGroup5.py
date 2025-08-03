@@ -40,16 +40,13 @@ def load_artifact(filename):
 
 
 # DATA LOADING AND PREPROCESSING
-@st.cache_data  # Streamlit cache decorator for performance optimization
-def load_data():
-    """Loads and caches raw loan data with initial cleaning:
-        - Drops irrelevant columns (ID, dtir1, etc.)
-        - Preserves the target variable 'Status' (1=default, 0=non-default)
-        - Saves cleaned data for reproducibility"""
-    df = pd.read_csv("Loan_Default.csv")
+@st.cache_data
+def load_data(uploaded_file):
+    """Loads and caches raw loan data from an uploaded CSV file"""
+    df = pd.read_csv(uploaded_file)
     df = df.drop(columns=['ID', 'dtir1', 'submission_of_application', 'year'], errors='ignore')
-    df.to_csv(f"{DATA_DIR}/1_raw_data.csv", index=False)
     return df
+
 
 
 def create_preprocessor():
@@ -62,39 +59,35 @@ def create_preprocessor():
        - Imputes missing values with most frequent category
        - One-hot encodes for model compatibility
     4. Uses ColumnTransformer for parallel processing of different feature types"""
-    df = load_data()
+   def create_preprocessor(df):
+    """Creates and fits a preprocessing pipeline based on uploaded data"""
     X = df.drop('Status', axis=1)
 
-    # Feature type identification
     numerical_cols = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
     categorical_cols = X.select_dtypes(include=['object']).columns.tolist()
 
-    # Save feature types for reference
-    save_artifact({'numerical': numerical_cols, 'categorical': categorical_cols},
-                  "2_column_types.pkl")
+    save_artifact({'numerical': numerical_cols, 'categorical': categorical_cols}, "2_column_types.pkl")
 
-    # Numerical pipeline
     numerical_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='median')),  # Robust to outliers
-        ('scaler', StandardScaler())])  # Helps models like SVM and neural networks
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', StandardScaler())
+    ])
 
-    # Categorical pipeline
     categorical_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='most_frequent')),  # Preserves mode
-        ('onehot', OneHotEncoder(handle_unknown='ignore'))])  # Handles new categories
+        ('imputer', SimpleImputer(strategy='most_frequent')),
+        ('onehot', OneHotEncoder(handle_unknown='ignore'))
+    ])
 
-    # Combined preprocessing
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ('num', numerical_transformer, numerical_cols),
-            ('cat', categorical_transformer, categorical_cols)])
+    preprocessor = ColumnTransformer(transformers=[
+        ('num', numerical_transformer, numerical_cols),
+        ('cat', categorical_transformer, categorical_cols)
+    ])
 
-    # # Fit and save the preprocessor
     preprocessor.fit(X)
     save_artifact(preprocessor, "3_preprocessor.pkl")
 
-    # Transform and save processed data
     X_processed = preprocessor.transform(X)
+
     num_features = preprocessor.named_transformers_['num'].get_feature_names_out()
     cat_features = preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out()
     all_features = np.concatenate([num_features, cat_features])
@@ -104,7 +97,6 @@ def create_preprocessor():
     processed_df.to_csv(f"{DATA_DIR}/4_processed_data.csv", index=False)
 
     return preprocessor
-
 
 
 
@@ -339,23 +331,34 @@ def Data_Import_and_Overview_page():
 def Data_Preprocessing_page():
     st.title("2. Data Preprocessing")
     """Manages the data preprocessing workflow:
+        - Uploads and previews raw data
         - Executes the preprocessing pipeline
         - Displays sample processed data
         - Shows feature engineering details"""
 
-    if st.button("Run Data Preprocessing"):
-        preprocessor = create_preprocessor()
-        processed_df = pd.read_csv(f"{DATA_DIR}/4_processed_data.csv")
+    uploaded_file = st.file_uploader("Upload your Loan_Default.csv file", type=["csv"])
 
-        st.subheader("Processed Data Sample")
-        st.dataframe(processed_df.head())
+    if uploaded_file is not None:
+        df = load_data(uploaded_file)
+        st.subheader("Cleaned Raw Data Preview")
+        st.dataframe(df.head())
 
-        st.subheader("Preprocessing Details")
-        st.write("Numerical features:", len(preprocessor.named_transformers_['num'].get_feature_names_out()))
-        st.write("Categorical features:",
-                 len(preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out()))
+        if st.button("Run Data Preprocessing"):
+            preprocessor = create_preprocessor(df)
+            processed_df = pd.read_csv(f"{DATA_DIR}/4_processed_data.csv")
 
-        st.success("Preprocessing completed and saved!")
+            st.subheader("Processed Data Sample")
+            st.dataframe(processed_df.head())
+
+            st.subheader("Preprocessing Summary")
+            st.write("✅ Numerical features:",
+                     len(preprocessor.named_transformers_['num'].get_feature_names_out()))
+            st.write("✅ Categorical features:",
+                     len(preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out()))
+
+            st.success("🎉 Preprocessing completed and saved successfully!")
+    else:
+        st.warning("⚠️ Please upload the Loan_Default.csv file to continue.")
 
 
 def Feature_Selection_page():
@@ -772,4 +775,5 @@ pages = {
 }
 
 selection = st.sidebar.selectbox("Select Page", list(pages.keys()))
+
 pages[selection]()
