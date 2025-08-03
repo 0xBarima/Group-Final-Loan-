@@ -40,13 +40,16 @@ def load_artifact(filename):
 
 
 # DATA LOADING AND PREPROCESSING
-@st.cache_data
-def load_data(uploaded_file):
-    """Loads and caches raw loan data from an uploaded CSV file"""
-    df = pd.read_csv(uploaded_file)
+@st.cache_data  # Streamlit cache decorator for performance optimization
+def load_data():
+    """Loads and caches raw loan data with initial cleaning:
+        - Drops irrelevant columns (ID, dtir1, etc.)
+        - Preserves the target variable 'Status' (1=default, 0=non-default)
+        - Saves cleaned data for reproducibility"""
+    df = pd.read_csv("Loan_Default.csv")
     df = df.drop(columns=['ID', 'dtir1', 'submission_of_application', 'year'], errors='ignore')
+    df.to_csv(f"{DATA_DIR}/1_raw_data.csv", index=False)
     return df
-
 
 
 def create_preprocessor():
@@ -59,35 +62,39 @@ def create_preprocessor():
        - Imputes missing values with most frequent category
        - One-hot encodes for model compatibility
     4. Uses ColumnTransformer for parallel processing of different feature types"""
-   def create_preprocessor(df):
-    """Creates and fits a preprocessing pipeline based on uploaded data"""
+    df = load_data()
     X = df.drop('Status', axis=1)
 
+    # Feature type identification
     numerical_cols = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
     categorical_cols = X.select_dtypes(include=['object']).columns.tolist()
 
-    save_artifact({'numerical': numerical_cols, 'categorical': categorical_cols}, "2_column_types.pkl")
+    # Save feature types for reference
+    save_artifact({'numerical': numerical_cols, 'categorical': categorical_cols},
+                  "2_column_types.pkl")
 
+    # Numerical pipeline
     numerical_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='median')),
-        ('scaler', StandardScaler())
-    ])
+        ('imputer', SimpleImputer(strategy='median')),  # Robust to outliers
+        ('scaler', StandardScaler())])  # Helps models like SVM and neural networks
 
+    # Categorical pipeline
     categorical_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='most_frequent')),
-        ('onehot', OneHotEncoder(handle_unknown='ignore'))
-    ])
+        ('imputer', SimpleImputer(strategy='most_frequent')),  # Preserves mode
+        ('onehot', OneHotEncoder(handle_unknown='ignore'))])  # Handles new categories
 
-    preprocessor = ColumnTransformer(transformers=[
-        ('num', numerical_transformer, numerical_cols),
-        ('cat', categorical_transformer, categorical_cols)
-    ])
+    # Combined preprocessing
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', numerical_transformer, numerical_cols),
+            ('cat', categorical_transformer, categorical_cols)])
 
+    # # Fit and save the preprocessor
     preprocessor.fit(X)
     save_artifact(preprocessor, "3_preprocessor.pkl")
 
+    # Transform and save processed data
     X_processed = preprocessor.transform(X)
-
     num_features = preprocessor.named_transformers_['num'].get_feature_names_out()
     cat_features = preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out()
     all_features = np.concatenate([num_features, cat_features])
@@ -97,6 +104,7 @@ def create_preprocessor():
     processed_df.to_csv(f"{DATA_DIR}/4_processed_data.csv", index=False)
 
     return preprocessor
+
 
 
 
@@ -127,7 +135,7 @@ def Home_Page():
     | Kingsley Sarfo           | 22252461   | Project Coordination, App Design & Preprocessing | https://loan-predictor-hbbz24vwfzaue2qx4hwcat.streamlit.app |                           |
     | Francisca Manu Sarpong   | 22255796   | Documentation & Deployment                  | https://kftalde5ypwd5a3qqejuvo.streamlit.app |               
     | George Owell             | 22256146   | Model Evaluation & Cross-validation         |                                |
-    | Barima Owiredu Addo      | 22254055   | UI & Prediction Testing                     |    https://loandefaultapp-ky4yy9kmt6ehsq8jqdcgs2.streamlit.app/                   |
+    | Barima Owiredu Addo      | 22254055   | UI & Prediction Testing                     |                       |
     | Akrobettoe Marcus        | 11410687   | Feature Selection & Model Training          | https://models-loan-default-prediction.streamlit.app/ |
 
     ---
@@ -328,44 +336,26 @@ def Data_Import_and_Overview_page():
             st.error(f"Error processing file: {str(e)}")
 
 
-def create_preprocessor(df):
-    """Creates a preprocessing pipeline for numerical and categorical features"""
-    X = df.drop('Status', axis=1)
+def Data_Preprocessing_page():
+    st.title("2. Data Preprocessing")
+    """Manages the data preprocessing workflow:
+        - Executes the preprocessing pipeline
+        - Displays sample processed data
+        - Shows feature engineering details"""
 
-    numerical_cols = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
-    categorical_cols = X.select_dtypes(include=['object']).columns.tolist()
+    if st.button("Run Data Preprocessing"):
+        preprocessor = create_preprocessor()
+        processed_df = pd.read_csv(f"{DATA_DIR}/4_processed_data.csv")
 
-    save_artifact({'numerical': numerical_cols, 'categorical': categorical_cols}, "2_column_types.pkl")
+        st.subheader("Processed Data Sample")
+        st.dataframe(processed_df.head())
 
-    numerical_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='median')),
-        ('scaler', StandardScaler())
-    ])
+        st.subheader("Preprocessing Details")
+        st.write("Numerical features:", len(preprocessor.named_transformers_['num'].get_feature_names_out()))
+        st.write("Categorical features:",
+                 len(preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out()))
 
-    categorical_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='most_frequent')),
-        ('onehot', OneHotEncoder(handle_unknown='ignore'))
-    ])
-
-    preprocessor = ColumnTransformer(transformers=[
-        ('num', numerical_transformer, numerical_cols),
-        ('cat', categorical_transformer, categorical_cols)
-    ])
-
-    preprocessor.fit(X)
-    save_artifact(preprocessor, "3_preprocessor.pkl")
-
-    X_processed = preprocessor.transform(X)
-
-    num_features = preprocessor.named_transformers_['num'].get_feature_names_out()
-    cat_features = preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out()
-    all_features = np.concatenate([num_features, cat_features])
-
-    processed_df = pd.DataFrame(X_processed, columns=all_features)
-    processed_df['Status'] = df['Status'].values
-    processed_df.to_csv(f"{DATA_DIR}/4_processed_data.csv", index=False)
-
-    return preprocessor
+        st.success("Preprocessing completed and saved!")
 
 
 def Feature_Selection_page():
@@ -782,7 +772,4 @@ pages = {
 }
 
 selection = st.sidebar.selectbox("Select Page", list(pages.keys()))
-
 pages[selection]()
-
-
