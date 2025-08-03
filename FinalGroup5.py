@@ -328,37 +328,43 @@ def Data_Import_and_Overview_page():
             st.error(f"Error processing file: {str(e)}")
 
 
-def Data_Preprocessing_page():
-    st.title("2. Data Preprocessing")
-    """Manages the data preprocessing workflow:
-        - Uploads and previews raw data
-        - Executes the preprocessing pipeline
-        - Displays sample processed data
-        - Shows feature engineering details"""
+def create_preprocessor(df):
+    X = df.drop('Status', axis=1)
 
-    uploaded_file = st.file_uploader("Upload your Loan_Default.csv file", type=["csv"])
+    numerical_cols = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    categorical_cols = X.select_dtypes(include=['object']).columns.tolist()
 
-    if uploaded_file is not None:
-        df = load_data(uploaded_file)
-        st.subheader("Cleaned Raw Data Preview")
-        st.dataframe(df.head())
+    save_artifact({'numerical': numerical_cols, 'categorical': categorical_cols}, "2_column_types.pkl")
 
-        if st.button("Run Data Preprocessing"):
-            preprocessor = create_preprocessor(df)
-            processed_df = pd.read_csv(f"{DATA_DIR}/4_processed_data.csv")
+    numerical_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', StandardScaler())
+    ])
 
-            st.subheader("Processed Data Sample")
-            st.dataframe(processed_df.head())
+    categorical_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy='most_frequent')),
+        ('onehot', OneHotEncoder(handle_unknown='ignore'))
+    ])
 
-            st.subheader("Preprocessing Summary")
-            st.write("✅ Numerical features:",
-                     len(preprocessor.named_transformers_['num'].get_feature_names_out()))
-            st.write("✅ Categorical features:",
-                     len(preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out()))
+    preprocessor = ColumnTransformer(transformers=[
+        ('num', numerical_transformer, numerical_cols),
+        ('cat', categorical_transformer, categorical_cols)
+    ])
 
-            st.success("🎉 Preprocessing completed and saved successfully!")
-    else:
-        st.warning("⚠️ Please upload the Loan_Default.csv file to continue.")
+    preprocessor.fit(X)
+    save_artifact(preprocessor, "3_preprocessor.pkl")
+
+    X_processed = preprocessor.transform(X)
+
+    num_features = preprocessor.named_transformers_['num'].get_feature_names_out()
+    cat_features = preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out()
+    all_features = np.concatenate([num_features, cat_features])
+
+    processed_df = pd.DataFrame(X_processed, columns=all_features)
+    processed_df['Status'] = df['Status'].values
+    processed_df.to_csv(f"{DATA_DIR}/4_processed_data.csv", index=False)
+
+    return preprocessor
 
 
 def Feature_Selection_page():
@@ -777,3 +783,4 @@ pages = {
 selection = st.sidebar.selectbox("Select Page", list(pages.keys()))
 
 pages[selection]()
+
